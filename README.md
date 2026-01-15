@@ -86,19 +86,6 @@ https://e0931kugujc-zg1ddxk7.slack.com/oauth?client_id=...&scope=...&granular_bo
 
 The `oauth_authorize_url` returned by `apps.manifest.create` should work for workspace-level installation on Enterprise Grid when `org_deploy_enabled: false`.
 
-## Attempted Workarounds (all failed)
-
-1. Adding `granular_bot_scope=1`, `team=1`, `install_redirect=install-on-team` to the URL
-2. Using `{team_domain}.slack.com/oauth` instead of `slack.com/oauth/v2/authorize`
-3. Replicating the exact web UI request format (multipart form data, same endpoint)
-4. Manual installation via `api.slack.com/apps/{id}/install-on-team`
-
-## Questions
-
-1. Why does the API-returned `oauth_authorize_url` trigger org-level scope restrictions when `org_deploy_enabled: false`?
-2. How can we programmatically install an app at the workspace level on Enterprise Grid?
-3. Is there a different API or URL format we should use?
-
 ## Files
 
 - `manifest.json` - The manifest being used
