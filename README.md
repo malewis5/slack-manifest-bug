@@ -1,75 +1,106 @@
-# slack-dev-platform
+# Enterprise Grid: `scope_not_allowed_on_enterprise` with `apps.manifest.create`
 
-Create and install Slack apps programmatically. Brings Vercel-style DX to Slack development.
+## Summary
 
-## Installation
+When creating a Slack app via the `apps.manifest.create` API on an Enterprise Grid workspace, the returned `oauth_authorize_url` fails with `scope_not_allowed_on_enterprise` during installation. The **exact same manifest** works perfectly when creating the app via the Slack web UI.
 
-```bash
-npm install slack-dev-platform
-```
+## Environment
 
-## CLI Usage
+- Enterprise Grid workspace
+- Manifest has `org_deploy_enabled: false` (workspace-level app, not org-level)
+- Using config tokens from `tooling.tokens.rotate`
 
-```bash
-# Run directly with npx
-npx slack-dev-platform
+## Steps to Reproduce
 
-# Or add to your project scripts
-npm run create-app
-```
-
-## Setup
-
-1. Add to `.env.local`:
+### 1. Create app via API
 
 ```bash
-SLACK_CONFIG_TOKEN=xoxe.xoxp-...
-SLACK_CONFIG_REFRESH_TOKEN=xoxe-1-...
-NGROK_AUTHTOKEN=...
+POST https://slack.com/api/apps.manifest.create
+Authorization: Bearer {config_token}
+Content-Type: application/json; charset=utf-8
+
+{
+  "manifest": {
+    "_metadata": { "major_version": 1, "minor_version": 1 },
+    "display_information": { "name": "Test App" },
+    "features": {
+      "bot_user": { "display_name": "Test App", "always_online": true }
+    },
+    "oauth_config": {
+      "scopes": {
+        "bot": ["channels:history", "chat:write", "commands"]
+      }
+    },
+    "settings": {
+      "org_deploy_enabled": false,
+      "socket_mode_enabled": false,
+      "token_rotation_enabled": false
+    }
+  }
+}
 ```
 
-2. Create a `manifest.json` with your Slack app configuration.
+### 2. Response
 
-3. Run:
-
-```bash
-pnpm run create-app
+```json
+{
+  "ok": true,
+  "app_id": "A0A8QJFPA3F",
+  "credentials": {
+    "client_id": "9103674572624.10296627792117",
+    "client_secret": "...",
+    "verification_token": "...",
+    "signing_secret": "..."
+  },
+  "oauth_authorize_url": "https://slack.com/oauth/v2/authorize?client_id=9103674572624.10296627792117&scope=channels:history,chat:write,commands",
+  "team_id": "E0931KUGUJC",
+  "team_domain": "vercel-slack-agents"
+}
 ```
 
-## What it does
+### 3. Navigate to `oauth_authorize_url`
 
-1. Starts ngrok tunnel
-2. Updates manifest.json URLs with ngrok URL
-3. Creates Slack app via Manifest API
-4. Opens browser for OAuth installation
-5. Saves credentials to `.env.local`
+**Result:** `scope_not_allowed_on_enterprise` error
 
-## Library Usage
+## Working Case: Web UI
 
-```typescript
-import {
-  loadManifest,
-  injectNgrokUrl,
-  createSlackApp,
-  startTunnel,
-} from "slack-dev-platform";
+When creating the app via the Slack web UI (api.slack.com) with the **exact same manifest JSON**, installation works fine.
 
-const tunnelUrl = await startTunnel();
-const manifest = await loadManifest();
-const updated = injectNgrokUrl(manifest, tunnelUrl);
-const app = await createSlackApp(configToken, updated);
-```
+### Key Difference
 
-## Credentials
+The web UI generates a different OAuth URL format:
 
-After running, `.env.local` will contain:
+|            | API `oauth_authorize_url` | Web UI Install URL         |
+| ---------- | ------------------------- | -------------------------- |
+| **Host**   | `slack.com`               | `{workspace-id}.slack.com` |
+| **Path**   | `/oauth/v2/authorize`     | `/oauth`                   |
+| **Params** | `client_id`, `scope` only | Many additional params     |
+
+**Web UI URL example:**
 
 ```
-SLACK_APP_ID=A012ABCD0A0
-SLACK_CLIENT_ID=...
-SLACK_CLIENT_SECRET=...
-SLACK_SIGNING_SECRET=...
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_TEAM_ID=T012ABCD
-SLACK_TEAM_NAME=Your Workspace
+https://e0931kugujc-zg1ddxk7.slack.com/oauth?client_id=...&scope=...&granular_bot_scope=1&single_channel=0&install_redirect=install-on-team&tracked=1&team=1
 ```
+
+## Expected Behavior
+
+The `oauth_authorize_url` returned by `apps.manifest.create` should work for workspace-level installation on Enterprise Grid when `org_deploy_enabled: false`.
+
+## Attempted Workarounds (all failed)
+
+1. Adding `granular_bot_scope=1`, `team=1`, `install_redirect=install-on-team` to the URL
+2. Using `{team_domain}.slack.com/oauth` instead of `slack.com/oauth/v2/authorize`
+3. Replicating the exact web UI request format (multipart form data, same endpoint)
+4. Manual installation via `api.slack.com/apps/{id}/install-on-team`
+
+## Questions
+
+1. Why does the API-returned `oauth_authorize_url` trigger org-level scope restrictions when `org_deploy_enabled: false`?
+2. How can we programmatically install an app at the workspace level on Enterprise Grid?
+3. Is there a different API or URL format we should use?
+
+## Files
+
+- `manifest.json` - The manifest being used
+- `src/lib/slack-api.ts` - API call implementation
+- `src/cli/create-app.ts` - Full flow
